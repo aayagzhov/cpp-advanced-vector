@@ -132,22 +132,13 @@ public:
         std::uninitialized_copy_n(other.data_.GetAddress(), size_, data_.GetAddress());
     }
 
-    void CopyWithOldCopacity(const Vector& rhs) {
-        const size_t copy_size = (rhs.Size() < this->Size()) ? rhs.Size() : this->Size();
-        (rhs.Size() < this->Size()) ? 
-            std::destroy_n(data_ + rhs.Size(), size_ - rhs.Size()) :
-            std::uninitialized_copy_n(rhs.data_ + this->Size(), rhs.Size() - size_, data_.GetAddress());
-        std::copy(rhs.data_.GetAddress(), rhs.data_ + copy_size, data_.GetAddress());
-        size_ = rhs.Size();  
-    }
-
     Vector& operator=(const Vector& rhs) {
         if (this != &rhs) {
             if (rhs.Size() > this->Capacity()) {
                 Vector<T> copy(rhs);
                 this->Swap(copy);
             } else {
-                CopyWithOldCopacity(rhs);
+                CopyWithOldCapacity(rhs);
             }
         }
         return *this;
@@ -164,14 +155,6 @@ public:
             std::swap(size_, rhs.size_);
         }
         return *this;
-    }
-
-    static void CopyOrMoveInNewData(T* from, size_t size, T* to) {
-        if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-            std::uninitialized_move_n(from, size, to);
-        } else {
-            std::uninitialized_copy_n(from, size, to);
-        }
     }
 
     void Reserve(size_t new_capacity) {
@@ -226,19 +209,9 @@ public:
         return Emplace(cpos, std::move(value));
     }
 
-    void CopyData(T* from, size_t size, T* to, RawMemory<T>& new_data, T* new_pos) {
-        try {
-            CopyOrMoveInNewData(from, size, to);
-        } catch(...) {
-            new_pos->~T();
-            std::destroy_n(new_data.GetAddress(), from - begin());
-            throw;
-        }
-    }
-
     template <typename... Types>
     iterator Emplace(const_iterator cpos, Types&&... values) {
-        assert(cpos >= cbegin() || cpos <= cend());
+        assert(cpos >= cbegin() && cpos <= cend());
         iterator pos = const_cast<iterator>(cpos);
         if (size_ == Capacity()) {
             RawMemory<T> new_data(size_ == 0 ? 1 : 2*Capacity());
@@ -275,7 +248,7 @@ public:
     }
 
     iterator Erase(const_iterator cpos) noexcept(std::is_nothrow_move_assignable_v<T>) {
-        assert(cpos >= cbegin() || cpos < cend());
+        assert(cpos >= cbegin() && cpos < cend());
         iterator pos = const_cast<iterator>(cpos);\
         std::move(pos + 1, end(), pos);
         PopBack();
@@ -312,6 +285,34 @@ public:
     }
 
 private:
+
+    void CopyWithOldCapacity(const Vector& rhs) {
+        const size_t copy_size = (rhs.Size() < this->Size()) ? rhs.Size() : this->Size();
+        (rhs.Size() < this->Size()) ? 
+            std::destroy_n(data_ + rhs.Size(), size_ - rhs.Size()) :
+            std::uninitialized_copy_n(rhs.data_ + this->Size(), rhs.Size() - size_, data_.GetAddress());
+        std::copy(rhs.data_.GetAddress(), rhs.data_ + copy_size, data_.GetAddress());
+        size_ = rhs.Size();  
+    }
+
+    static void CopyOrMoveInNewData(T* from, size_t size, T* to) {
+        if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+            std::uninitialized_move_n(from, size, to);
+        } else {
+            std::uninitialized_copy_n(from, size, to);
+        }
+    }
+
+    void CopyData(T* from, size_t size, T* to, RawMemory<T>& new_data, T* new_pos) {
+        try {
+            CopyOrMoveInNewData(from, size, to);
+        } catch(...) {
+            new_pos->~T();
+            std::destroy_n(new_data.GetAddress(), from - begin());
+            throw;
+        }
+    }
+
 
     RawMemory<T> data_;
     size_t size_ = 0;
